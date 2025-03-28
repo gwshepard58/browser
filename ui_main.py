@@ -1,19 +1,4 @@
-import json
-import os
-import shutil
-import platform
-import tkinter as tk
-from tkinter import ttk, messagebox, Scrollbar
-
-def get_bookmarks_path():
-    system = platform.system()
-    if system == "Windows":
-        return os.path.expanduser(r'~\AppData\Local\BraveSoftware\Brave-Browser\User Data\Default\Bookmarks')
-    elif system == "Darwin":
-        return os.path.expanduser('~/Library/Application Support/BraveSoftware/Brave-Browser/Default/Bookmarks')
-    else:
-        return os.path.expanduser('~/.config/BraveSoftware/Brave-Browser/Default/Bookmarks')
-
+# Placeholder - BookmarkEditor class would go here
 class BookmarkEditor:
     def __init__(self, master):
         self.master = master
@@ -21,7 +6,6 @@ class BookmarkEditor:
         self.master.geometry("850x500")
 
         self.bookmarks_path = get_bookmarks_path()
-        self.backup_path = self.bookmarks_path + '.backup'
         self.backup_created = False
 
         if not os.path.exists(self.bookmarks_path):
@@ -29,31 +13,24 @@ class BookmarkEditor:
             master.quit()
             return
 
-        self.load_bookmarks()
+        self.data = load_bookmarks(self.bookmarks_path)
         self.history = []
         self.current = self.data['roots']['bookmark_bar']
 
         self.build_ui()
         self.refresh_list()
 
-    def load_bookmarks(self):
-        with open(self.bookmarks_path, 'r', encoding='utf-8') as f:
-            self.data = json.load(f)
-
     def save_bookmarks(self):
         if not self.backup_created:
-            shutil.copy2(self.bookmarks_path, self.backup_path)
+            backup_bookmarks(self.bookmarks_path)
             self.backup_created = True
             self.status_label.config(text="✅ Backup created before saving.")
-
-        with open(self.bookmarks_path, 'w', encoding='utf-8') as f:
-            json.dump(self.data, f, indent=2)
+        save_bookmarks(self.bookmarks_path, self.data)
         messagebox.showinfo("Saved", "Bookmarks saved successfully.")
 
     def restore_backup(self):
-        if os.path.exists(self.backup_path):
-            shutil.copy2(self.backup_path, self.bookmarks_path)
-            self.load_bookmarks()
+        if restore_backup(self.bookmarks_path):
+            self.data = load_bookmarks(self.bookmarks_path)
             self.current = self.data['roots']['bookmark_bar']
             self.history.clear()
             self.refresh_list()
@@ -62,46 +39,10 @@ class BookmarkEditor:
         else:
             messagebox.showwarning("Restore Failed", "No backup file found.")
 
-    def find_duplicates(self):
-        def collect_bookmarks(folder, path="Bookmark Bar"):
-            for item in folder.get("children", []):
-                if item.get("type") == "folder":
-                    collect_bookmarks(item, f"{path}/{item['name']}")
-                elif item.get("type") == "url":
-                    url = item.get("url")
-                    if url:
-                        all_bookmarks.setdefault(url, []).append((item.get("name", "(Unnamed)"), path))
-
-        all_bookmarks = {}
-        collect_bookmarks(self.data['roots']['bookmark_bar'])
-
-        duplicates = {url: entries for url, entries in all_bookmarks.items() if len(entries) > 1}
-
-        if not duplicates:
-            messagebox.showinfo("No Duplicates", "No duplicate bookmarks found.")
-            return
-
-        # Show results in a new popup window
-        dup_window = tk.Toplevel(self.master)
-        dup_window.title("Duplicate Bookmarks")
-        dup_window.geometry("600x400")
-
-        text_area = tk.Text(dup_window, wrap="word")
-        text_area.pack(fill=tk.BOTH, expand=True)
-
-        for url, entries in duplicates.items():
-            text_area.insert(tk.END, f"🔗 {url}\n")
-            for name, folder_path in entries:
-                text_area.insert(tk.END, f"    📁 {folder_path} — {name}\n")
-            text_area.insert(tk.END, "\n")
-
-        text_area.config(state=tk.DISABLED)
-
     def build_ui(self):
         frame = tk.Frame(self.master)
         frame.pack(fill=tk.BOTH, expand=True)
 
-        # === Left Panel: Treeview ===
         self.tree = ttk.Treeview(frame, columns=("Name",), show='headings', height=25)
         self.tree.heading("Name", text="Name")
         self.tree.column("Name", anchor="w", width=400)
@@ -110,20 +51,17 @@ class BookmarkEditor:
         scrollbar = Scrollbar(frame, orient="vertical", command=self.tree.yview)
         scrollbar.grid(row=0, column=1, sticky="ns", pady=10)
         self.tree.configure(yscrollcommand=scrollbar.set)
-
         self.tree.bind("<Double-1>", self.enter_folder)
 
-        # === Right Panel: Buttons ===
         btn_frame = tk.Frame(frame)
         btn_frame.grid(row=0, column=2, sticky="ns", padx=10, pady=10)
 
-        # Sorting buttons
         tk.Button(btn_frame, text="Sort All (Asc, Folders First)", command=lambda: self.sort_all_and_refresh(True, False)).pack(pady=2)
         tk.Button(btn_frame, text="Sort All (Asc, Bookmarks First)", command=lambda: self.sort_all_and_refresh(True, True)).pack(pady=2)
         tk.Button(btn_frame, text="Sort All (Desc, Folders First)", command=lambda: self.sort_all_and_refresh(False, False)).pack(pady=2)
         tk.Button(btn_frame, text="Sort All (Desc, Bookmarks First)", command=lambda: self.sort_all_and_refresh(False, True)).pack(pady=2)
-        tk.Button(btn_frame, text="Find Duplicates", command=self.find_duplicates).pack(pady=2)
-
+        tk.Button(btn_frame, text="Find Duplicates", command=lambda: find_duplicates(self.data, self.master)).pack(pady=2)
+        tk.Button(btn_frame, text="Show Statistics", command=lambda: generate_stats(self.data, self.master)).pack(pady=2)
 
         tk.Label(btn_frame, text="─ This Folder Only ─", fg="gray").pack(pady=(10, 0))
         tk.Button(btn_frame, text="Sort Asc (Folders First)", command=lambda: self.sort_folder(True, False)).pack(pady=2)
@@ -131,7 +69,6 @@ class BookmarkEditor:
         tk.Button(btn_frame, text="Sort Desc (Folders First)", command=lambda: self.sort_folder(False, False)).pack(pady=2)
         tk.Button(btn_frame, text="Sort Desc (Bookmarks First)", command=lambda: self.sort_folder(False, True)).pack(pady=2)
 
-        # Navigation and utility
         tk.Label(btn_frame, text="─ Navigation ─", fg="gray").pack(pady=(10, 0))
         tk.Button(btn_frame, text="Go Back", command=self.go_back).pack(pady=2)
         tk.Button(btn_frame, text="Restore Original", command=self.restore_backup).pack(pady=2)
@@ -141,11 +78,10 @@ class BookmarkEditor:
         self.status_label = tk.Label(self.master, text="📁 Bookmarks loaded.", fg="blue")
         self.status_label.pack(pady=(0, 5))
 
-        # Apply tag styles
         style = ttk.Style()
         style.configure("Treeview", rowheight=24)
-        self.tree.tag_configure('folder', background="#fffacd")     # light yellow
-        self.tree.tag_configure('bookmark', background="#dcdcdc")   # light gray
+        self.tree.tag_configure('folder', background="#fffacd")
+        self.tree.tag_configure('bookmark', background="#dcdcdc")
 
         frame.columnconfigure(0, weight=1)
         frame.rowconfigure(0, weight=1)
@@ -206,6 +142,3 @@ def run_app():
     root = tk.Tk()
     app = BookmarkEditor(root)
     root.mainloop()
-
-if __name__ == "__main__":
-    run_app()
