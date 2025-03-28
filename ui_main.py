@@ -1,4 +1,13 @@
 # Placeholder - BookmarkEditor class would go here
+import tkinter as tk
+from tkinter import ttk, messagebox, Scrollbar
+import os
+
+from bookmark_loader import get_bookmarks_path, load_bookmarks, save_bookmarks, backup_bookmarks, restore_backup
+from bookmark_utils import find_duplicates
+from bookmark_stats import generate_stats
+
+
 class BookmarkEditor:
     def __init__(self, master):
         self.master = master
